@@ -9,3 +9,9 @@ services:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    external: true
