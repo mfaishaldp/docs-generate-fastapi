@@ -140,6 +140,7 @@ Contoh:
 
 ```json
 {
+  "sheet_name": "Sheet1",
   "expected_headers": [
     "customer",
     "qty",
@@ -199,6 +200,18 @@ Karena:
 - random text
 
 Parser akan mencari row yang paling mirip dengan header ini menggunakan fuzzy matching.
+
+---
+
+## sheet_name (Excel Only)
+
+Digunakan untuk:
+
+```txt
+menentukan worksheet mana yang akan diproses dari file Excel
+```
+
+Jika tidak diisi, sistem akan menggunakan worksheet pertama.
 
 ---
 
@@ -293,7 +306,7 @@ Contoh:
 # Example Config String
 
 ```txt
-{"expected_headers":["customer","qty","price","date"],"header_mapping":{"customer_name":["customer","client","buyer"],"quantity":["qty","quantity","pcs"],"total_price":["price","amount","total","grand total"],"order_date":["date","tanggal","order date"]}}
+{"sheet_name":"Sheet1","expected_headers":["customer","qty","price","date"],"header_mapping":{"customer_name":["customer","client","buyer"],"quantity":["qty","quantity","pcs"],"total_price":["price","amount","total","grand total"],"order_date":["date","tanggal","order date"]}}
 ```
 
 ---
