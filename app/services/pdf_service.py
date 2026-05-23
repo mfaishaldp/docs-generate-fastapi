@@ -1,16 +1,26 @@
+import math
+import numpy as np
 import pdfplumber
 import pandas as pd
 from io import BytesIO
 
 from app.utils.header_detector import detect_header_row
 from app.utils.header_mapper import normalize_headers
-from app.utils.table_cleaner import clean_table
+from app.utils.table_cleaner import clean_table, trim_table_rows, filter_outlier_rows
 
 
 def process_pdf(
     file_bytes,
     expected_headers,
-    header_mapping
+    header_mapping,
+    footer_keywords=None,
+    min_data_cells=2,
+    min_filled_ratio=0.6,
+    max_single_cell_chars=60,
+    outlier_trim_enabled=True,
+    outlier_similarity_threshold=40,
+    outlier_max_ratio=0.6,
+    outlier_min_columns=2
 ):
 
     all_results = []
@@ -137,6 +147,30 @@ def process_pdf(
                         cleaned_row
                     )
 
+                if outlier_trim_enabled:
+                    filtered_rows = filter_outlier_rows(
+                        filtered_rows,
+                        min_columns=outlier_min_columns,
+                        similarity_threshold=outlier_similarity_threshold,
+                        max_outlier_ratio=outlier_max_ratio
+                    )
+
+                if len(filtered_rows) == 0:
+                    continue
+
+                # Remove trailing footer/messy rows
+                filtered_rows = trim_table_rows(
+                    filtered_rows,
+                    footer_keywords=footer_keywords,
+                    min_data_cells=min_data_cells,
+                    expected_columns=len(filtered_headers),
+                    min_filled_ratio=min_filled_ratio,
+                    max_single_cell_chars=max_single_cell_chars
+                )
+
+                if len(filtered_rows) == 0:
+                    continue
+
                 # ====================================
                 # CREATE DATAFRAME
                 # ====================================
@@ -182,29 +216,40 @@ def process_pdf(
                     orient="records"
                 )
 
-                cleaned_records = []
+                sanitized_records = []
 
                 for record in records:
 
-                    cleaned_record = {
+                    sanitized_record = {}
 
-                        key: value
+                    for key, value in record.items():
 
-                        for key, value in record.items()
+                        if value is None or value == "":
+                            continue
 
-                        if value not in [None, ""]
-                    }
+                        if isinstance(value, float) and not math.isfinite(value):
+                            continue
+
+                        if isinstance(value, np.floating):
+                            if not math.isfinite(float(value)):
+                                continue
+                            value = value.item()
+
+                        if isinstance(value, np.integer):
+                            value = value.item()
+
+                        sanitized_record[key] = value
 
                     # skip empty object
-                    if len(cleaned_record) == 0:
+                    if len(sanitized_record) == 0:
                         continue
 
-                    cleaned_records.append(
-                        cleaned_record
+                    sanitized_records.append(
+                        sanitized_record
                     )
 
                 all_results.extend(
-                    cleaned_records
+                    sanitized_records
                 )
 
     return all_results

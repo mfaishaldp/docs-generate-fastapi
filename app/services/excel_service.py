@@ -1,16 +1,28 @@
+import math
+import numpy as np
 import pandas as pd
 from io import BytesIO
 from openpyxl import load_workbook
 
 from app.utils.header_detector import detect_header_row
 from app.utils.header_mapper import normalize_headers
-from app.utils.table_cleaner import clean_table
+from app.utils.table_cleaner import clean_table, trim_table_rows, filter_outlier_rows
 
 
 def process_excel(
     file_bytes,
     expected_headers,
-    header_mapping
+    header_mapping,
+    sheet_name=None,
+    sheet_names=None,
+    footer_keywords=None,
+    min_data_cells=2,
+    min_filled_ratio=0.6,
+    max_single_cell_chars=60,
+    outlier_trim_enabled=True,
+    outlier_similarity_threshold=40,
+    outlier_max_ratio=0.6,
+    outlier_min_columns=2
 ):
 
     workbook = load_workbook(
@@ -20,8 +32,21 @@ def process_excel(
 
     all_results = []
 
+    if sheet_name:
+        target_sheets = [sheet_name]
+    elif sheet_names:
+        target_sheets = list(sheet_names)
+    else:
+        target_sheets = list(workbook.sheetnames)
+
+    target_sheets = [
+        name
+        for name in target_sheets
+        if name in workbook.sheetnames
+    ]
+
     # LOOP EACH SHEET
-    for sheet_name in workbook.sheetnames:
+    for sheet_name in target_sheets:
 
         worksheet = workbook[sheet_name]
 
@@ -146,6 +171,36 @@ def process_excel(
                 cleaned_row
             )
 
+        if outlier_trim_enabled:
+            filtered_rows = filter_outlier_rows(
+                filtered_rows,
+                min_columns=outlier_min_columns,
+                similarity_threshold=outlier_similarity_threshold,
+                max_outlier_ratio=outlier_max_ratio
+            )
+
+
+        if len(filtered_rows) == 0:
+            continue
+
+        print(filtered_rows)
+        # Remove trailing footer/messy rows
+        effective_min_data_cells = min_data_cells
+        if len(filtered_headers) == 1:
+            effective_min_data_cells = 1
+
+        filtered_rows = trim_table_rows(
+            filtered_rows,
+            footer_keywords=footer_keywords,
+            min_data_cells=effective_min_data_cells,
+            expected_columns=len(filtered_headers),
+            min_filled_ratio=min_filled_ratio,
+            max_single_cell_chars=max_single_cell_chars
+        )
+
+        if len(filtered_rows) == 0:
+            continue
+
         # ====================================
         # CREATE DATAFRAME
         # ====================================
@@ -192,29 +247,39 @@ def process_excel(
             orient="records"
         )
 
-        cleaned_records = []
+        sanitized_records = []
 
         for record in records:
 
-            cleaned_record = {
+            sanitized_record = {}
 
-                key: value
+            for key, value in record.items():
 
-                for key, value in record.items()
+                if value is None or value == "":
+                    continue
 
-                if value not in [None, ""]
-            }
+                if isinstance(value, float) and not math.isfinite(value):
+                    continue
 
-            # skip object if empty
-            if len(cleaned_record) == 0:
+                if isinstance(value, np.floating):
+                    if not math.isfinite(float(value)):
+                        continue
+                    value = value.item()
+
+                if isinstance(value, np.integer):
+                    value = value.item()
+
+                sanitized_record[key] = value
+
+            if len(sanitized_record) == 0:
                 continue
 
-            cleaned_records.append(
-                cleaned_record
+            sanitized_records.append(
+                sanitized_record
             )
 
         all_results.extend(
-            cleaned_records
+            sanitized_records
         )
 
     return all_results
